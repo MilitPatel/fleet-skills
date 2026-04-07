@@ -15,6 +15,8 @@ These skills extend OpenClaw agents with fleet-specific capabilities. They live 
 | `pre-action-gate` | Structural memory check before high-risk actions (SSH, citations, external sends) |
 | `discord-dm-recover` | Recover lost session context from Discord DM history after a crash |
 | `fleet-mem-deploy` | Deploy MoE memory shards to fleet nodes |
+| `memory-maintenance` | Keep Layer 0 bootstrap files lean to prevent compaction loops |
+| `session-cleanup` | Prune stale sessions from the OpenClaw session store |
 
 ### Fleet Operations
 | Skill | Description |
@@ -58,7 +60,7 @@ Or pull from Google Drive (for agents without GitHub access):
 ```bash
 gog drive download <folder-id> --account <your-account>
 ```
-Drive folder: https://drive.google.com/drive/folders/10NuxveRQrMu1VPqEeM3pa-JuJigFJIIr
+Drive folder: https://drive.google.com/drive/folders/1G2ggTGnxk7ClShVmLw9T8jUxvuoSLaGD
 
 ## Contributing
 
