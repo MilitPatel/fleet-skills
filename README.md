@@ -26,6 +26,11 @@ These skills extend OpenClaw agents with fleet-specific capabilities. They live 
 | `fleet-sync` | Push files from Uvy to all fleet nodes via SSH |
 | `openclaw-test-flight` | Post-update validation test flight for any fleet node |
 
+### Security
+| Skill | Description |
+|-------|-------------|
+| `magika-scout` | Pre-flight file type detection using Google Magika — validates downloaded files before parsing (PDFs, weights, GitHub raw) |
+
 ### Literature & Science
 | Skill | Description |
 |-------|-------------|
@@ -42,6 +47,20 @@ These skills extend OpenClaw agents with fleet-specific capabilities. They live 
 | `imsg` | iMessage/SMS CLI |
 | `mcporter` | List, configure, and call MCP servers/tools |
 | `github` | GitHub CLI operations (issues, PRs, CI runs) |
+
+## Repo Structure Note
+
+Some skills are organized into subdirectories by category:
+- `security/magika-scout/` — note: Steve's original install link (`main/magika-scout`) 404s; the correct path is `security/magika-scout/`
+
+When fetching from GitHub raw, always use the full path:
+```bash
+# ✅ Correct
+https://raw.githubusercontent.com/MilitPatel/fleet-skills/main/security/magika-scout/SKILL.md
+
+# ❌ 404s
+https://raw.githubusercontent.com/MilitPatel/fleet-skills/main/magika-scout/SKILL.md
+```
 
 ## Installing a Skill
 
