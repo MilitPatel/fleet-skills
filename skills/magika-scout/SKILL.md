@@ -64,6 +64,38 @@ Add a scout call **before**:
 - Processing user-uploaded or externally-fetched documents
 - Ingesting SEC filings, trial readout PDFs, patent docs, earnings transcripts
 - Any batch download where silent failures are possible
+- **Pulling files from GitHub or HuggingFace** — verify before loading (see below)
+
+## GitHub / HuggingFace Pre-Flight
+
+External repos and model hubs are high-risk ingestion points. Scout every file before touching it:
+
+```python
+# Before loading a HuggingFace model file
+f = scout("model.safetensors")
+if f["type"] not in ("unknown", "txt"):   # safetensors has no dedicated type yet
+    # unexpected type — could be pickle, elf, etc.
+    raise ValueError(f"Unexpected model file type: {f['type']} — do not load")
+
+# Before parsing a GitHub config or script
+f = scout("config.json")
+if f["type"] != "json":
+    raise ValueError(f"config.json is actually {f['type']} — aborting")
+```
+
+**Specific risks by source:**
+
+| Source | Common attack | Scout catches |
+|--------|--------------|---------------|
+| HuggingFace `.bin` / `.pt` | Malicious pickle (arbitrary code exec on `torch.load`) | `type=python` or `type=elf` instead of expected binary |
+| HuggingFace `config.json` | Malformed or injected JSON | `type != json` |
+| GitHub release `.zip` | Zip containing executable payload | Contents flagged after extraction |
+| GitHub raw file | Script disguised as data | `type=shell` or `type=python` on a `.csv` |
+| Any `*.safetensors` | Safer than pickle but verify format | Low-confidence or wrong type = reject |
+
+**Rule of thumb:** If a file from an external source isn't the exact type you expected at the confidence you'd expect (>90%), don't parse it. Re-fetch or inspect manually.
+
+**Safetensors vs pickle:** Always prefer `.safetensors` over `.bin`/`.pt` for HuggingFace model weights — safetensors format cannot execute arbitrary code. Magika can't fully validate safetensors yet but will catch obvious mismatches (e.g., an ELF binary named `model.safetensors`).
 
 ## Router Map
 

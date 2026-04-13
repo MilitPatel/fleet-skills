@@ -51,6 +51,20 @@ Full reference for `scout.py` routing decisions. Extend `ROUTER` dict in `scout.
 | `shell` | Shell script | Review before any execution |
 | `batch` | Windows batch script | Review before any execution |
 
+## HuggingFace / GitHub Specific Risks
+
+| File | Expected Magika type | Red flags | Risk |
+|------|---------------------|-----------|------|
+| `model.safetensors` | `unknown` or custom binary | `elf`, `pe`, `python` | Malicious payload disguised as weights |
+| `model.bin` / `model.pt` | `unknown` | `python` (pickle) | Arbitrary code exec via `torch.load` — **never load untrusted .pt/.bin** |
+| `config.json` | `json` >90% | anything else | Malformed/injected config |
+| `tokenizer.json` | `json` >90% | anything else | Same |
+| `*.py` scripts | `python` | `shell`, `elf` | Verify before exec |
+| Release `.zip` | `zip` | `elf`, `pe` inside | Scout extracted contents too |
+| Raw GitHub file | varies | type ≠ extension | Disguised scripts or executables |
+
+**Pickle is the primary HuggingFace risk vector.** `.bin` and `.pt` files are Python pickles — `torch.load()` on a malicious file executes arbitrary code. Magika will flag these as `python` type if the pickle header is detectable. Always use `.safetensors` when available.
+
 ## Common False Positives
 
 | Situation | What Magika sees | What it actually is | Fix |
