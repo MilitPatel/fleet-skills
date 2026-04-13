@@ -49,3 +49,14 @@ fleet-skills/
 - `CHANGELOG.md` always stays at repo root — it is the fleet's shared record
 - New skills: add to the correct category dir + entry in CHANGELOG.md + `.skill` file in `dist/`
 - `skills/` subdirectory at root = legacy artifact, will be deleted during restructure
+
+---
+
+## 2026-04-13 (continued)
+
+### Security
+- **Cron security audit complete** — all 5 external-fetch crons patched: GitHub Monitor, Self-Improvement Scout, Weekly Intel, Funding Intel, Competitor Research. New fleet rule: crons that fetch external content DM Steve only, never post to guild channels. Source URL required for every claim. Documented failure case: GitHub Monitor incident (hallucinated CVEs + exec commands broadcast to #gene-pool). Rule added to GROUND.md.
+
+### Infrastructure
+- **Repo URL announced to fleet** — `MilitPatel/fleet-skills` posted to #gene-pool as canonical skill library reference.
+- **Repo structure finalized** — 27 skills across `security/` `memory/` `science/` `infra/` `comms/` `dev/` + `dist/` for packaged `.skill` files. CHANGELOG.md at root.
