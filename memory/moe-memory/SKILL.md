@@ -1,178 +1,368 @@
 ---
 name: moe-memory
+version: "2.1"
 description: >
   Install and configure the fleet MoE (Mixture-of-Experts) memory system on any agent.
-  Sets up the three-layer summaries-first architecture: Layer 0 always-loaded files,
-  Layer 1 summary index (fast, ~200 tokens per shard), Layer 1.5 full shards on demand,
-  Layer 2 transcripts grep-only. Use when onboarding a new agent, after a memory reset,
-  or when an agent needs to adopt the fleet memory standard. Triggers on phrases like
-  "set up memory system", "install MoE", "onboard memory", "set up fleet memory",
-  "memory architecture", "summaries-first".
+  v2.1 adds auto-remediation: file size gates with auto-archive for diary.md and
+  reasoning-journal.md, enforced by the weekly memory-maintenance cron.
+  v2.0 adds entity pages, brain-first lookup, thin page detection, summary staleness
+  tracking, and orphan detection — inspired by GBrain Dream Cycle architecture.
+  Three-layer summaries-first: Layer 0 always-loaded, Layer 1 summary index,
+  Layer 1.5 full shards on demand, Layer 2 transcripts grep-only.
+changelog: CHANGELOG.md
 ---
 
-# MoE Memory System — Installation & Usage
+# MoE Memory System — v2.0
 
-The fleet memory system is designed around one principle: **memory = index, not storage.**
+## Core Principle
+
+**Memory = index, not storage.**
 
 Load the index (summaries). Access storage (full shards) only when the index is insufficient.
-This keeps context lean while allowing the knowledge base to grow indefinitely.
+The knowledge base grows unbounded. The context cost stays bounded.
+
+**New in v2.0: Brain-first on every message.** Not just keyword-triggered — always check
+the index before responding. ROUTER.md is a mandatory first stop.
+
+---
 
 ## Architecture Overview
 
 ```
-Layer 0 — Always loaded (every session, ~800 tokens total):
-  GROUND.md          → behavioral priors, hard rules
-  TODAY.md           → live priorities, blocked items
-  SOUL.md            → identity, values
-  memory/diary.md    → narrative memory (last entry)
+Layer 0 — Always loaded (every session, ~800 tokens):
+  GROUND.md            → behavioral priors, hard rules
+  TODAY.md             → live priorities, blocked items
+  SOUL.md              → identity, values
+  memory/diary.md      → narrative memory (last entry)
+  memory/ROUTER.md     → routing index (always loaded — it IS the index)
 
-Layer 1 — Summary index (on-demand, ~200 tokens each, keyword-triggered via ROUTER.md):
-  memory/infrastructure.summary.md   → fleet nodes, SSH, gateway
-  memory/contacts.summary.md         → team, advisors, auth rules
-  memory/projects.summary.md         → active project status
-  memory/company.summary.md          → UViiVe context, financials
-  memory/science.summary.md          → science programs, compute stack
-  [+ arc-agi.md | cron-jobs.md | lessons.md | discord-channels.md as-is]
+Layer 1 — Summary index (on-demand, ~200 tokens each):
+  memory/*.summary.md  → topic summaries (keyword-triggered via ROUTER.md)
+  memory/people/       → entity pages for people        [NEW v2.0]
+  memory/projects/     → entity pages for projects      [NEW v2.0]
+  memory/companies/    → entity pages for companies     [NEW v2.0]
 
-Layer 1.5 — Full shards (on-demand, Tier 2 — only when summary is insufficient):
+Layer 1.5 — Full shards (Tier 2 — only when summary is insufficient):
   memory/infrastructure.md | contacts.md | projects.md | company.md | science.md
 
 Layer 2 — Transcripts (grep only, NEVER loaded into context):
   ~/.openclaw/agents/main/sessions/*.jsonl
 ```
 
-## Installation
+---
 
-### Step 1: Create the memory directory structure
+## Brain-First Lookup Rule [NEW v2.0]
 
-```bash
-mkdir -p ~/.openclaw/workspace/memory
+On **every** message — before responding:
+
+```
+1. Read ROUTER.md (always in Layer 0 — zero cost)
+2. Identify entities mentioned: people, projects, companies, concepts
+3. Load matching summary (Tier 1) for each entity
+4. If summary is insufficient → load full shard (Tier 2)
+5. Then respond
 ```
 
-### Step 2: Copy summary files from fleet source
+This is not optional on keyword match. It is mandatory on every message.
+The cost is near-zero when ROUTER.md is in Layer 0 — you already have it.
 
-The canonical summary files live on Uvy. Pull them via SSH or fleet-sync:
+---
 
-```bash
-# From any fleet node with SSH access to Uvy:
-scp dyrmalabs@100.94.110.26:~/.openclaw/workspace/memory/*.summary.md \
-    ~/.openclaw/workspace/memory/
-scp dyrmalabs@100.94.110.26:~/.openclaw/workspace/memory/ROUTER.md \
-    ~/.openclaw/workspace/memory/
+## Entity Pages [NEW v2.0]
+
+Each person, project, and company gets a **dedicated page**, not a row in a monolithic shard.
+
+### Directory structure
+```
+memory/
+  people/
+    steve-ekker.md
+    milit-patel.md
+    wes-wierson.md
+    [one file per person]
+  projects/
+    uviive-unburn.md
+    b7h3-binders.md
+    acad9-provisional.md
+    [one file per project]
+  companies/
+    uviive.md
+    perlara.md
+    [one file per company/org]
 ```
 
-Or use the fleet-sync skill to push from Uvy to the new node.
+### Entity page format
+```markdown
+# [Name]
+*Type: person | project | company*
+*Created: YYYY-MM-DD*
+*Updated: YYYY-MM-DD*
+*Fullness: thin | partial | full*  ← updated by EOD entity sweep
 
-### Step 3: Seed your own content
+## Compiled Truth
+[Current best understanding — rewritten when evidence changes]
 
-The summary files from Uvy are templates — replace the content with your own node's specifics:
+## Timeline
+- YYYY-MM-DD: [event] — [source]    ← append only
+- YYYY-MM-DD: [event] — [source]
+```
 
-- `infrastructure.summary.md` → update your node's SSH details, gateway restart method
-- `contacts.summary.md` → same across fleet (don't change)
-- `projects.summary.md` → same across fleet (don't change)
-- `company.summary.md` → same across fleet (don't change)
-- `science.summary.md` → same across fleet (don't change)
+### When to create an entity page
+- Person: mentioned ≥2 times in session OR has a direct relationship to Steve/Milit/Wes
+- Project: any named project with >1 active session
+- Company: any external org relevant to UViiVe (investor, partner, competitor, vendor)
 
-### Step 4: Update AGENTS.md bootstrap
+### Fullness states
+- **thin:** < 3 lines of substantive content → flagged for EOD enrichment
+- **partial:** 3–10 lines → functional but could be richer
+- **full:** > 10 lines with sourced timeline → no action needed
 
-Add to your Layer 0 + Layer 1 bootstrap instructions in AGENTS.md:
+Entity pages are created/enriched automatically by EOD entity sweep (eod-consolidation v2.0).
+
+---
+
+## Summary Staleness Tracking [NEW v2.0]
+
+Every `*.summary.md` file carries a staleness header:
 
 ```markdown
-## Layer 0 (always load):
+---
+shard: contacts.md
+updated: 2026-04-12
+shard_updated: 2026-04-12
+status: current   # current | stale | [STALE]
+---
+```
+
+**Staleness rule:** If `updated` is > 7 days behind `shard_updated` → status becomes `[STALE]`.
+
+ROUTER.md surfaces stale summaries:
+```
+contacts.summary.md [STALE — last updated 2026-04-05, shard updated 2026-04-11]
+→ load full shard instead until summary is refreshed
+```
+
+**Who fixes stale summaries:** EOD v2.0 compile step checks for staleness and refreshes as part of Job 2.
+
+---
+
+## Thin Page Detection [NEW v2.0]
+
+ROUTER.md tracks fullness state for all entity pages:
+
+```yaml
+# In ROUTER.md — entity page index
+people/steve-ekker.md:       fullness: full
+people/milit-patel.md:       fullness: full
+people/ankit-sabharwal.md:   fullness: thin    ← flagged for EOD enrichment
+projects/acad9-provisional:  fullness: partial
+```
+
+EOD entity sweep (Job 1.5) checks this index and enriches thin pages automatically.
+
+---
+
+## File Size Gates & Auto-Archive [NEW v2.1]
+
+v2.0 detected bloat but didn't fix it. v2.1 adds **enforcement**.
+
+### Size thresholds
+
+| File | Soft limit | Hard limit | Action |
+|------|-----------|-----------|--------|
+| `memory/diary.md` | 4,000 tokens | 6,000 tokens | Archive oldest 30% to `memory/diary-archive-YYYY-MM-DD.md` |
+| `memory/reasoning-journal.md` | 6,000 tokens | 10,000 tokens | Archive oldest 50% to `memory/reasoning-journal-archive-YYYY-MM-DD.md` |
+| Any `*.summary.md` | 500 tokens | 800 tokens | Flag for rewrite — summary has become a shard |
+| Any entity page | 2,000 tokens | 3,000 tokens | Split into `[name]-extended.md`, keep core in main page |
+
+### Soft limit behavior
+- Log warning to `memory/YYYY-MM-DD.md`: `⚠️ SIZE GATE: [file] at [N] tokens — approaching limit`
+- No action yet
+
+### Hard limit behavior
+- **Auto-archive:** move oldest entries (by date prefix on timeline items) to archive file
+- Archive filename: `memory/[basename]-archive-YYYY-MM-DD.md`
+- Keep the most recent entries in the live file
+- Log to daily memory: `📦 ARCHIVED: [N] entries from [file] → [archive-file]`
+- Never silently delete — always archive
+
+### Who runs the gates
+**Weekly memory-maintenance cron** (Mondays 6AM) owns size gate checks and auto-archiving.
+EOD v2.0 may flag soft-limit warnings but does NOT archive — that's the maintenance cron's job.
+
+### Why weekly not nightly
+Nightly archiving would fragment context too aggressively. Weekly gives files room to breathe
+between EOD runs while still catching runaway growth before it impacts bootstrap.
+
+---
+
+## Orphan Detection [NEW v2.0]
+
+**Weekly pass** (memory-maintenance cron, Mondays 6AM):
+
+An **orphan** is any entry in a memory shard or entity page with:
+- No cross-links to any other shard or page
+- No source attribution (`[SOURCE MISSING]`)
+- Not updated in > 30 days
+
+Orphans are flagged in a `memory/orphan-report-YYYY-MM-DD.md` file for human review.
+Options: link it, enrich it, or archive it. Never silently delete.
+
+---
+
+## ROUTER.md — v2.0 Structure
+
+ROUTER.md is now **always in Layer 0** (small enough — ~300 tokens). It is the mandatory
+first read on every session and every message.
+
+Full routing structure (two-tier for all topic shards):
+
+```yaml
+# ROUTER.md v2.0
+# Layer 0 — always loaded
+# Updated: YYYY-MM-DD
+
+## Entity Index (people/projects/companies)
+[fullness states for all entity pages]
+
+## Topic Shards — Two-Tier Routing
+[Tier 1 summary → Tier 2 full shard for each topic]
+
+## Staleness Flags
+[any *.summary.md marked [STALE]]
+
+## Orphan Flags
+[any entries pending review from last orphan detection run]
+```
+
+---
+
+## Installation
+
+### Step 1: Directory structure
+```bash
+mkdir -p ~/.openclaw/workspace/memory/{people,projects,companies}
+```
+
+### Step 2: Pull bootstrap files from Drive AI Operations
+
+Fleet bootstrap files live in `moe-bootstrap/` subfolder of Drive AI Operations (`18O1W9FNOYfl-URHbWMOfT84g_ZMgT6bu`).
+This is the canonical source — no dependency on any other agent.
+
+```bash
+# Pull fleet bootstrap from Drive AI Operations
+export PATH=/opt/homebrew/bin:$PATH
+gog drive download-folder <moe-bootstrap-folder-id> \
+  --output ~/.openclaw/workspace/memory/ \
+  --account <agent-google-account> --client <agent-client>
+```
+
+Replace `<moe-bootstrap-folder-id>` with the Drive ID of the `moe-bootstrap/` subfolder (see `MOE-BOOTSTRAP-MANIFEST.md` in that folder).
+Replace `<agent-google-account>` and `<agent-client>` with the agent's configured Google account.
+
+**Weekly sync (Mondays, bundled with memory-maintenance cron):**
+Re-pull `moe-bootstrap/` and merge. Rules:
+- Shared templates (ROUTER.md schema, summary format): Drive wins (overwrite)
+- Entity pages (people/*.md, projects/*.md): skip if local exists (local wins)
+- New templates added to Drive: copy to local
+
+See `MOE-BOOTSTRAP-MANIFEST.md` for the full merge rule table.
+
+### Step 3: Update AGENTS.md bootstrap
+
+Layer 0 must include `memory/ROUTER.md`:
+
+```markdown
+## Layer 0 (always load — every session):
 1. GROUND.md
 2. TODAY.md
 3. SOUL.md
 4. memory/diary.md (last entry)
+5. memory/ROUTER.md   ← NEW v2.0 — always loaded
 
-## Layer 1 (load summaries first via ROUTER.md):
-- Check ROUTER.md for keyword → summary mapping
-- Load *.summary.md files (Tier 1) on keyword match
-- Load full *.md shards (Tier 2) only when summary is insufficient
-- NEVER load full shards as default — defeats the purpose
+## Layer 1 (brain-first on every message):
+- On every message: check ROUTER.md → load matching summaries
+- Load *.summary.md (Tier 1) → full *.md shards (Tier 2) only if needed
+- Load entity pages for people/projects/companies mentioned
+- NEVER load full shards as default
 ```
 
-### Step 5: Add the summary update rule
-
-Add to your GROUND.md:
-
+### Step 4: Add summary update rule to GROUND.md
 ```
-## MoE Summary Update Rule
-When updating any full memory shard (infrastructure.md, contacts.md, etc.):
-→ Also update the corresponding *.summary.md file
-→ Summaries must stay accurate or they become worse than useless
-→ If a fact in a summary is stale, update it immediately
+## MoE Summary Update Rule (v2.0)
+When updating any full memory shard:
+→ Update the corresponding *.summary.md AND its staleness header
+→ Update fullness state in ROUTER.md for any entity pages touched
+→ Summaries stale > 7 days → load full shard instead, flag for refresh
 ```
+
+### Step 5: Add memory-maintenance cron
+Weekly orphan detection + embed stale summaries:
+`0 6 * * 1` (Mondays 6AM) — `sessionTarget: isolated`
 
 ---
 
-## ROUTER.md — How It Works
+## Writing Good Summaries (unchanged from v1)
 
-ROUTER.md maps message keywords to shard loads. The two-tier pattern:
-
-```yaml
-contacts.summary.md (Tier 1):
-  keywords: [Steve, Milit, Wes, person name, who is, contact, email, DM]
-  note: fast ~200-token lookup
-
-contacts.md (Tier 2):
-  keywords: [same — but load only when needing detailed history or outreach notes]
-```
-
-**Rule:** When a keyword matches, load the summary. If you need more detail after reading the summary, load the full shard. Never skip straight to the full shard.
-
----
-
-## Writing Good Summaries
-
-A good summary file:
-- **Fits in ~200–400 tokens** — if it's longer, it's not a summary
-- **Contains the facts you need 80% of the time** — not everything, the most-used stuff
-- **Has a clear "when to load full shard" note** at the bottom
-- **Is a table or structured list** — not prose (faster to scan)
-- **Stays current** — updated whenever the full shard changes significantly
-
-A bad summary:
-- Truncates the full file (just less of the same thing)
-- Omits the routing rule (agent doesn't know when to go deeper)
-- Gets stale (worse than useless — confidently wrong)
+- **~200–400 tokens** — if longer, it's not a summary
+- **80% coverage** — the facts you need most of the time
+- **"When to load full shard"** note at bottom
+- **Table or structured list** — not prose
+- **Staleness header** — always include, always update
 
 ---
 
 ## Maintenance
 
-**After any session that updates a full shard:**
-1. Check if the corresponding summary is still accurate
-2. Update the summary if any key facts changed
+**After any session updating a full shard:**
+1. Update corresponding `*.summary.md` staleness header
+2. Update fullness state in ROUTER.md for touched entity pages
 3. Fleet-sync both files
 
-**Quarterly:** Review all summaries for staleness. Prune full shards of outdated entries.
+**EOD v2.0 (automatic):**
+- Entity sweep creates/enriches thin entity pages
+- Citation hygiene flags `[SOURCE MISSING]` entries
 
-**Adding a new shard:**
-1. Create the full `memory/topic.md`
-2. Create `memory/topic.summary.md` (summary first — forces you to think about what's essential)
-3. Add both to ROUTER.md with two-tier routing
-4. Fleet-sync
+**Weekly (memory-maintenance cron):**
+- Orphan detection → `memory/orphan-report-YYYY-MM-DD.md`
+- Summary staleness check
+- `gbrain embed --stale` (if GBrain installed)
+
+**Quarterly:**
+- Review all summaries for staleness
+- Prune full shards of outdated entries
+- Archive entity pages for people/projects no longer active
 
 ---
 
 ## Why This Architecture
 
-**The problem it solves:** As agents accumulate knowledge, full-shard loading hits context limits.
-MEMORY.md was truncating at 12% in bootstrap before this was built.
+**The problem:** Full-shard loading hits context limits as knowledge accumulates.
+MEMORY.md was truncating at 12% in bootstrap before v1 was built.
 
-**The principle (from Omni-SimpleMem, arXiv:2604.01007):** Separate lightweight metadata
-from heavy raw data. Search over metadata. Access full content on demand.
+**v1 solution:** Summaries-first, keyword routing, two-tier access.
 
-**The result:** The knowledge base grows unbounded. The context cost stays bounded.
-The fleet learns indefinitely without ever hitting a ceiling.
+**v2.0 gap closed:** v1 had no entity-level granularity, no staleness tracking, no
+auto-enrichment. Knowledge could only grow via manual updates. GBrain showed that
+the brain should compound automatically — every conversation adds to it.
+
+**v2.1 gap closed:** v2.0 detected problems (size, staleness, orphans) but didn't fix them.
+Detection without remediation just creates noise. v2.1 adds enforcement: size gates with
+auto-archive ensure files can't grow unbounded regardless of agent discipline.
+
+**The principle (Omni-SimpleMem, arXiv:2604.01007):** Separate lightweight metadata
+from heavy raw data. Search metadata. Access full content on demand.
+
+**v2.1 result:** Entity pages compound from EOD entity sweep. Summaries self-report
+staleness. Orphans surface for pruning. Files enforce their own size limits.
+The knowledge base maintains itself — and stays lean.
 
 ---
 
 ## Files in This Skill
-
-- `SKILL.md` — this file (installation guide + usage)
+- `SKILL.md` — this file
+- `CHANGELOG.md` — version history
 - See also: `memory/ROUTER.md` on any fleet node for current routing rules
-- Reference doc: https://docs.google.com/document/d/1aeyCvfWwssWScKJr37hSLklmat-jW-_LTQvvUCNpOY4/edit
 
-*Fleet Memory System — MoE Architecture v1 | Deployed April 6, 2026*
-*Built by Uvy 🦾 | Inspired by Omni-SimpleMem (arXiv:2604.01007)*
+*MoE Memory System v2.5 | 2026-04-18*
+*Designed by Zevo 🦓 + Pip 🛩️ | Inspired by GBrain (Garry Tan) + Omni-SimpleMem (arXiv:2604.01007)*
